@@ -6,7 +6,7 @@
 # contents
 **utilities**:
 - xor.py
-	script to xor encrypt shellcode
+> script to xor encrypt shellcode
 
 **tools**:
 - rwxhunter
