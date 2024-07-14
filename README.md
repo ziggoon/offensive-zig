@@ -10,7 +10,7 @@
 
 **tools**
 - rwxhunter
-|   identifies RWX memory regions for all processes
+	identifies RWX memory regions for all processes
 
 **shellcode loaders**:
 - local
