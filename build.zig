@@ -18,6 +18,13 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const rwxhunter = b.addExecutable(.{
+        .name = "rwxhunter",
+        .root_source_file = b.path("src/rwxhunter.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const host = b.option([]const u8, "host", "remote host") orelse "127.0.0.1";
     const port = b.option(u16, "port", "remote port") orelse 80;
     const size = b.option(u32, "size", "shellcode size") orelse 4096;
@@ -34,7 +41,9 @@ pub fn build(b: *std.Build) void {
 
     local.addWin32ResourceFile(.{ .file = rc });
     remote.addWin32ResourceFile(.{ .file = rc });
+    rwxhunter.addWin32ResourceFile(.{ .file = rc });
 
     b.installArtifact(local);
     b.installArtifact(remote);
+    b.installArtifact(rwxhunter);
 }

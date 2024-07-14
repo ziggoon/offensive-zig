@@ -8,6 +8,10 @@
 - xor.py
 	script to xor encrypt shellcode
 
+**tools**
+- rwxhunter
+|   identifies RWX memory regions for all processes
+
 **shellcode loaders**:
 - local
 	injects shellcode downloaded from a remote socket in the local process and executes via a function pointer

