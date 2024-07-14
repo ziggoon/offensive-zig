@@ -8,15 +8,15 @@
 - xor.py
 	script to xor encrypt shellcode
 
-**tools**
+**tools**:
 - rwxhunter
-	identifies RWX memory regions for all processes
+> identifies RWX memory regions for all processes
 
 **shellcode loaders**:
 - local
-	injects shellcode downloaded from a remote socket in the local process and executes via a function pointer
+> injects shellcode downloaded from a remote socket in the local process and executes via a function pointer
 - remote
-	creates a sacrificial *notepad.exe* process, allocates RWX memory, then executes via remote thread
+> creates a sacrificial *notepad.exe* process, allocates RWX memory, then executes via remote thread
 
 ## opsec
 > generally this is just a learning tool for me, but i am also trying to implement opsec-aware techniques which reduce detections for payloads
