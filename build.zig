@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSmall });
 
     const local = b.addExecutable(.{
         .name = "local",
@@ -25,6 +25,13 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const pebwalker = b.addExecutable(.{
+        .name = "pebwalker",
+        .root_source_file = b.path("src/pebwalker.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const host = b.option([]const u8, "host", "remote host") orelse "127.0.0.1";
     const port = b.option(u16, "port", "remote port") orelse 80;
     const size = b.option(u32, "size", "shellcode size") orelse 4096;
@@ -42,8 +49,10 @@ pub fn build(b: *std.Build) void {
     local.addWin32ResourceFile(.{ .file = rc });
     remote.addWin32ResourceFile(.{ .file = rc });
     rwxhunter.addWin32ResourceFile(.{ .file = rc });
+    pebwalker.addWin32ResourceFile(.{ .file = rc });
 
     b.installArtifact(local);
     b.installArtifact(remote);
     b.installArtifact(rwxhunter);
+    b.installArtifact(pebwalker);
 }
