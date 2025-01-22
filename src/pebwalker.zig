@@ -29,6 +29,19 @@ pub const IMAGE_NT_HEADERS = extern struct {
     OptionalHeader: IMAGE_OPTIONAL_HEADER64,
 };
 
+pub const IMAGE_SECTION_HEADER = extern struct {
+    Name: [8]u8, // 8 byte name - null padded if shorter
+    PhysicalAddress: u32, // aka VirtualSize
+    VirtualAddress: u32, // RVA of section start
+    SizeOfRawData: u32, // size of section in file
+    PointerToRawData: u32, // file offset to section data
+    PointerToRelocations: u32, // offset to relocation entries
+    PointerToLinenumbers: u32, // offset to line number entries
+    NumberOfRelocations: u16, // number of relocations
+    NumberOfLinenumbers: u16, // number of line numbers
+    Characteristics: u32, // section flags
+};
+
 pub const IMAGE_FILE_HEADER = extern struct {
     Machine: windows.WORD,
     NumberOfSections: windows.WORD,
@@ -74,7 +87,7 @@ pub const IMAGE_OPTIONAL_HEADER64 = extern struct {
 
 pub const IMAGE_EXPORT_DIRECTORY = extern struct {
     Characteristics: windows.DWORD,
-    TimeDataStamp: windows.DWORD,
+    TimeDateStamp: windows.DWORD,
     MajorVersion: windows.WORD,
     MinorVersion: windows.WORD,
     Name: windows.DWORD,
@@ -91,69 +104,80 @@ pub const IMAGE_DATA_DIRECTORY = extern struct {
     Size: windows.DWORD,
 };
 
+pub const LDR_DATA_TABLE_ENTRY = extern struct {
+    InLoadOrderLinks: windows.LIST_ENTRY,
+    InMemoryOrderLinks: windows.LIST_ENTRY,
+    Reserved2: [2]?*anyopaque,
+    DllBase: ?*anyopaque,
+    EntryPoint: ?*anyopaque,
+    SizeOfImage: windows.ULONG,
+    FullDllName: windows.UNICODE_STRING,
+    Reserved4: [8]u8,
+    Reserved5: [3]?*anyopaque,
+    CheckSum_Reserved6: extern union {
+        CheckSum: u32,
+        Reserved6: ?*anyopaque,
+    },
+    TimeDateStamp: u32,
+};
+
 pub fn getKernel32Base() ?*anyopaque {
     const peb = windows.peb();
-    var list_entry = peb.Ldr.InMemoryOrderModuleList.Flink;
+    var list_entry = peb.Ldr.InLoadOrderModuleList.Flink;
 
     while (true) {
-        const module: *const windows.LDR_DATA_TABLE_ENTRY = @fieldParentPtr("InMemoryOrderLinks", list_entry);
+        const module: *const LDR_DATA_TABLE_ENTRY = @fieldParentPtr(
+            "InLoadOrderLinks",
+            list_entry,
+        );
 
         if (module.FullDllName.Buffer) |buffer| {
-            var dll_name: [256]u8 = undefined;
-            var i: u8 = 0;
-            while (i < module.FullDllName.Length / @sizeOf(windows.WORD) and i < 255) {
-                dll_name[i] = @truncate(buffer[i]);
-                i += 1;
-            }
-            dll_name[i] = 0;
+            var dll_name: [256]u16 = undefined; // Use u16 for wide chars
+            const len = @min(module.FullDllName.Length / 2, 255);
 
-            if (std.ascii.eqlIgnoreCase(dll_name[0..i], "c:\\windows\\system32\\kernel32.dll")) {
+            for (0..len) |i| {
+                dll_name[i] = buffer[i];
+            }
+            dll_name[len] = 0;
+
+            var utf8_buf: [512]u8 = undefined;
+            const utf8_len = std.unicode.utf16LeToUtf8(&utf8_buf, dll_name[0..len]) catch continue;
+
+            if (std.ascii.eqlIgnoreCase(utf8_buf[0..utf8_len], "c:\\windows\\system32\\kernel32.dll")) {
                 std.debug.print("kernel32.dll found\n", .{});
                 std.debug.print("   base address: 0x{x}\n", .{@intFromPtr(module.DllBase)});
                 std.debug.print("   size: 0x{x}\n", .{module.SizeOfImage});
                 std.debug.print("   entry: 0x{x}\n", .{@intFromPtr(module.EntryPoint)});
-
                 return module.DllBase;
             }
         }
 
         list_entry = list_entry.Flink;
-        if (list_entry == &peb.Ldr.InMemoryOrderModuleList) break;
+        if (list_entry == &peb.Ldr.InLoadOrderModuleList) break;
     }
 
     return null;
 }
 
-pub fn getProcAddress(base_address: [*]const u8, proc_ordinal: u16, comptime T: type) ?T {
-    const dos_header: *const IMAGE_DOS_HEADER = @alignCast(@ptrCast(base_address));
+pub fn getProcAddress(base_address: [*]const u8, proc_name: []const u8, comptime T: type) ?T {
+    _ = proc_name;
+    const dos_header: *const IMAGE_DOS_HEADER = @ptrCast(@alignCast(base_address));
+    if (dos_header.e_magic != 0x5A4D) return null;
 
     const e_lfanew: usize = @intCast(dos_header.e_lfanew);
     const nt_header_addr = base_address + e_lfanew;
-    const nt_header: *const IMAGE_NT_HEADERS = @alignCast(@ptrCast(nt_header_addr));
+    const nt_header: *const IMAGE_NT_HEADERS = @ptrCast(@alignCast(nt_header_addr));
+    if (nt_header.Signature != 0x4550) return null;
 
-    const export_directory_rva = nt_header.OptionalHeader.DataDirectory[0].VirtualAddress;
-    const export_directory_addr = base_address + export_directory_rva;
-    const export_directory: *const IMAGE_EXPORT_DIRECTORY = @alignCast(@ptrCast(export_directory_addr));
+    const export_dir_rva = nt_header.OptionalHeader.DataDirectory[0].VirtualAddress;
+    const export_dir_ptr = base_address + export_dir_rva;
 
-    const names = export_directory.NumberOfNames;
-    if (names == 0) {
-        std.debug.print("functions are likely exported via ordinal. checking now\n", .{});
-        const function_address_array: [*]const u32 = @alignCast(@ptrCast(base_address + @as(usize, @intCast(export_directory.AddressOfFunctions))));
-        const function_ordinal_array: [*]const u16 = @alignCast(@ptrCast(base_address + @as(usize, @intCast(export_directory.AddressOfNameOrdinals))));
+    const export_bytes: [*]const u32 = @ptrCast(@alignCast(export_dir_ptr));
 
-        for (0..export_directory.NumberOfFunctions) |i| {
-            const function_ordinal = function_ordinal_array[i];
-            const function_address = base_address + function_address_array[function_ordinal];
-
-            if (proc_ordinal == function_ordinal) {
-                std.debug.print("ordinal match found!\n", .{});
-
-                return @alignCast(@constCast(@ptrCast(function_address)));
-            }
-        }
-    }
-
-    // std.debug.print("export dir: {any}\n", .{export_directory});
+    const name_rva = export_bytes[3];
+    const name_ptr: [*:0]const u8 = @ptrCast(base_address + name_rva);
+    const dll_name = std.mem.span(name_ptr);
+    std.debug.print("\n[*] DLL Name: {s}\n", .{dll_name});
 
     return null;
 }
@@ -171,7 +195,7 @@ const MessageBoxAFn = *const fn (
 
 pub fn main() !void {
     const kernel32_base = getKernel32Base();
-    if (getProcAddress(@ptrCast(kernel32_base), 43, LoadLibraryAFn)) |loadLibraryPtr| {
+    if (getProcAddress(@ptrCast(kernel32_base), "LoadLibraryA", LoadLibraryAFn)) |loadLibraryPtr| {
         std.debug.print("loadlibrary found @ 0x{x}\n", .{@intFromPtr(loadLibraryPtr)});
 
         const loadLibrary = @as(LoadLibraryAFn, @ptrCast(loadLibraryPtr));
